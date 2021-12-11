@@ -83,6 +83,35 @@ class BaseSwapAuditor():
     def _calculate_stability(self, original, frame):
         return (frame == original).sum()
 
+    def _stringify_marginals(self, marginals, percent=True):
+        string = "Marginals:\n\n"
+        if percent:
+            for m, vals in marginals.items():
+                changed, total = vals
+                string += m + ": " + str(changed/total)
+                string += "\n"
+        else:
+            for m, vals in marginals.items():
+                changed, total = vals
+                string += m + ": " + "(" + str(changed) + ", " + str(total) + ")"
+                string += "\n"
+        return string
+
+    def _retrieve_stability_indivdual(self, ind, percent=True):
+        stability = None
+        pretty_print_marginals = ""
+        if ind not in self.individual_stability:
+            raise ValueError("Individual not in stability tracker.")
+
+        all_non_changes, all_total, marginal_map = self.individual_stability[ind] 
+        if percent:
+            stability = all_non_changes/all_total
+            pretty_print_marginals = self._stringify_marginals(marginal_map, percent=True)
+        else:
+            stability = (all_non_changes, all_total)
+            pretty_print_marginals = self._stringify_marginals(marginal_map, percent=False)
+
+        return stability, pretty_print_marginals
 
 class NaiveSwapAuditor(BaseSwapAuditor):
     """Baseclass for shared functionality between all swap auditors."""
