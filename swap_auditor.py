@@ -139,7 +139,10 @@ class BaseSwapAuditor():
             mappings[self._sg_key(x)] = (all_non_changes, all_total, marginal_map)
 
 class NaiveSwapAuditor(BaseSwapAuditor):
-    """Baseclass for shared functionality between all swap auditors."""
+    """Naive swap auditor. 
+    Provides functionality to compute all of the swaps for each individual.
+    Approx O(n^2*(2^k-1)) time. Slow - n=1000, |pc|=2, |kmarginal|=3 ~45 mins.
+    """
 
     def __init__(self, data, predictor, id_column, protected_classes, target_col):
         # Calculate the intersectional classes and feature subsets for marginals
@@ -176,7 +179,7 @@ class NaiveSwapAuditor(BaseSwapAuditor):
                     
                     x_repeated = sample.loc[sample.index.repeat(len(x_copy))]
 
-                    columns_to_reassign = sg_frame.columns.difference(marginal)
+                    columns_to_reassign = x_copy.columns.difference(marginal)
 
                     x_copy.loc[:,columns_to_reassign] = x_repeated.loc[:,columns_to_reassign].values
                     
@@ -196,4 +199,110 @@ class NaiveSwapAuditor(BaseSwapAuditor):
         self._calculate_marginal_subsets(marginal_features)
 
         for _, row in self.data.iterrows():
-            self.calculate_stability_individual(row[self.id_column], marginal_features)
+            self.calculate_stability_individual(row[self.id_column])
+
+class RandomizedSamplingSwapAuditor(BaseSwapAuditor):
+    """Randomized swap auditor. 
+    Runs randomized swapping process for t iterations to 
+    achieve stability estimate within epsilon of the true value
+    with 1-delta probability. Defaults to a +-0.1 approximation,
+    with 90% success probability.
+    """
+
+    def __init__(self, data, predictor, id_column, protected_classes, target_col):
+        # Calculate the intersectional classes and feature subsets for marginals
+        super().__init__(data, predictor, id_column, protected_classes, target_col)
+
+    def calculate_stability_individual(self, id, t):
+        
+        # Split data into individual and rest
+        sample = self.data.loc[self.data[self.id_column].isin([id])]
+
+        if id not in self.individual_stability:
+            self.individual_stability[int(id)] = (0, 0, {})
+            # print(int(id))
+
+        #Original prediction
+        prediction_cols = sample.columns.difference([self.id_column]+[self.target_col])
+        original = self.predictor.predict(sample[prediction_cols])
+
+        # print("Original prediction: " + str(original))
+
+        subgroup = self._retrieve_subgroup_individual(sample, self.protected_classes)
+
+        # Create a frame with all other samples to draw from
+        non_sg_frames = []
+        for sg in self.intersectional_classes:
+            if subgroup != sg:
+                sg_frame = self.subgroup_frames[self._sg_key(sg)]
+                non_sg_frames.append(sg_frame)
+        all_other_frames = pd.concat(non_sg_frames)
+        
+        # For each marginal 
+        for marginal in self.all_marginals:
+            # "For t iterations" - equivalent to t samples of other frame
+            other_subgroup_samples = all_other_frames.sample(n=t, replace=True)
+
+            x_repeated = sample.loc[sample.index.repeat(len(other_subgroup_samples))]
+
+            columns_to_reassign = other_subgroup_samples.columns.difference(marginal)
+
+            other_subgroup_samples.loc[:,columns_to_reassign] = x_repeated.loc[:,columns_to_reassign].values
+            
+            predictions = self.predictor.predict(other_subgroup_samples[prediction_cols])
+            stability = self._calculate_stability(original, predictions)
+            
+            # Do individual metric tracking
+            self._track_metrics(stability, predictions, marginal, int(id), self.individual_stability, individual=True)
+
+            del other_subgroup_samples
+
+
+    def calculate_all_stability(self, marginal_features, delta=0.1, epsilon=0.1):
+        # Calculate the intersectional classes and feature subsets for marginals
+        self._calculate_marginal_subsets(marginal_features)
+
+        n = len(self.data)
+
+        # Calculate number of t iterations with delta, epsilon, n
+        # TODO: Verify this iteration calculation
+        t = int(np.ceil((np.log((2*n)/delta))/(epsilon**2)))
+        print("Iterations: " + str(t))
+        
+        for _, row in self.data.iterrows():
+            self.calculate_stability_individual(row[self.id_column], t)
+
+class RandomizedGroupSwapAuditor(BaseSwapAuditor):
+    """Randomized swap auditor. 
+    Runs randomized swapping process for t iterations to 
+    achieve stability estimate within epsilon of the true value
+    with 1-delta probability. Defaults to a +-0.1 approximation,
+    with 90% success probability.
+    """
+
+    def __init__(self, data, predictor, id_column, protected_classes, target_col):
+        # Calculate the intersectional classes and feature subsets for marginals
+        super().__init__(data, predictor, id_column, protected_classes, target_col)
+
+    def calculate_stability_individual(self, id):
+        pass
+
+    def run_group_experiment(self):
+        pass
+
+    def calculate_all_stability(self, marginal_features, delta=0.1, epsilon=0.1):
+        # Calculate the intersectional classes and feature subsets for marginals
+        self._calculate_marginal_subsets(marginal_features)
+
+        n = len(self.data)
+
+        # Calculate number of t iterations with delta, epsilon, n
+        # TODO: Verify this iteration calculation
+        t = int(np.ceil((np.log((2*n)/delta))/(epsilon**2)))
+        print("Iterations: " + str(t))
+
+        for marginal in self.all_marginals:
+            for i in range(t):
+                pass 
+
+        # df.groupby(['FactorA', 'FactorB']).apply(lambda grp: grp.sample(n=2))
