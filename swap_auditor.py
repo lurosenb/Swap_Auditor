@@ -97,13 +97,13 @@ class BaseSwapAuditor():
                 string += "\n"
         return string
 
-    def _retrieve_stability_indivdual(self, ind, percent=True):
+    def _retrieve_stability(self, x, mappings, percent):
         stability = None
         pretty_print_marginals = ""
-        if ind not in self.individual_stability:
+        if x not in mappings:
             raise ValueError("Individual not in stability tracker.")
 
-        all_non_changes, all_total, marginal_map = self.individual_stability[ind] 
+        all_non_changes, all_total, marginal_map = mappings[x] 
         if percent:
             stability = all_non_changes/all_total
             pretty_print_marginals = self._stringify_marginals(marginal_map, percent=True)
@@ -113,6 +113,31 @@ class BaseSwapAuditor():
 
         return stability, pretty_print_marginals
 
+    def _retrieve_stability_individual(self, ind, percent=True):
+        return self._retrieve_stability(ind, self.individual_stability, percent)
+
+    def _retrieve_stability_subgroup(self, sg, percent=True):
+        return self._retrieve_stability(sg, self.subgroup_stability, percent)
+
+    def _track_metrics(self, stability, predictions, marginal, x, mappings, individual=True):
+        if individual:
+            all_non_changes, all_total, marginal_map = mappings[x] 
+        else:
+            all_non_changes, all_total, marginal_map = mappings[self._sg_key(x)]
+
+        all_non_changes += stability
+        all_total += len(predictions)
+
+        if self._marginal_key(marginal) not in marginal_map:
+            marginal_map[self._marginal_key(marginal)] = (0,0)
+        s, p = marginal_map[self._marginal_key(marginal)] 
+        marginal_map[self._marginal_key(marginal)] = (s + stability, p + len(predictions))
+        
+        if individual:
+            mappings[x] = (all_non_changes, all_total, marginal_map)
+        else:
+            mappings[self._sg_key(x)] = (all_non_changes, all_total, marginal_map)
+
 class NaiveSwapAuditor(BaseSwapAuditor):
     """Baseclass for shared functionality between all swap auditors."""
 
@@ -120,10 +145,9 @@ class NaiveSwapAuditor(BaseSwapAuditor):
         # Calculate the intersectional classes and feature subsets for marginals
         super().__init__(data, predictor, id_column, protected_classes, target_col)
 
-    def calculate_stability_individual(self, id, marginal_features):
+    def calculate_stability_individual(self, id):
         # Split data into individual and rest
         sample = self.data.loc[self.data[self.id_column].isin([id])]
-        # all_other_data = self.data.drop(self.data.loc[self.data[self.id_column] == id].index)
 
         if id not in self.individual_stability:
             self.individual_stability[int(id)] = (0, 0, {})
@@ -132,9 +156,8 @@ class NaiveSwapAuditor(BaseSwapAuditor):
         #Original prediction
         prediction_cols = sample.columns.difference([self.id_column]+[self.target_col])
         original = self.predictor.predict(sample[prediction_cols])
+
         # print("Original prediction: " + str(original))
-        # Calculate the intersectional classes and feature subsets for marginals
-        self._calculate_marginal_subsets(marginal_features)
 
         subgroup = self._retrieve_subgroup_individual(sample, self.protected_classes)
 
@@ -161,31 +184,16 @@ class NaiveSwapAuditor(BaseSwapAuditor):
                     stability = self._calculate_stability(original, predictions)
                     
                     # Do individual metric tracking
-                    all_non_changes, all_total, marginal_map = self.individual_stability[id] 
-                    all_non_changes += stability
-                    all_total += len(predictions)
-
-                    if self._marginal_key(marginal) not in marginal_map:
-                        marginal_map[self._marginal_key(marginal)] = (0,0)
-                    s, p = marginal_map[self._marginal_key(marginal)] 
-                    marginal_map[self._marginal_key(marginal)] = (s + stability, p + len(predictions))
-
-                    self.individual_stability[id] = (all_non_changes, all_total, marginal_map)
+                    self._track_metrics(stability, predictions, marginal, int(id), self.individual_stability, individual=True)
                     
                     # Do groupwise metric tracking
-                    sg_all_non_changes, sg_all_total, sg_marginal_map = self.subgroup_stability[self._sg_key(sg)]
-                    sg_all_non_changes += stability
-                    sg_all_total += len(predictions)
-
-                    if self._marginal_key(marginal) not in sg_marginal_map:
-                        sg_marginal_map[self._marginal_key(marginal)] = (0,0)
-                    s, p = sg_marginal_map[self._marginal_key(marginal)] 
-                    sg_marginal_map[self._marginal_key(marginal)] = (s + stability, p + len(predictions))
-
-                    self.subgroup_stability[self._sg_key(sg)] = (sg_all_non_changes, sg_all_total, sg_marginal_map)
+                    self._track_metrics(stability, predictions, marginal, sg, self.subgroup_stability, individual=False)
 
                     del x_copy
 
     def calculate_all_stability(self, marginal_features):
+        # Calculate the intersectional classes and feature subsets for marginals
+        self._calculate_marginal_subsets(marginal_features)
+
         for _, row in self.data.iterrows():
             self.calculate_stability_individual(row[self.id_column], marginal_features)
