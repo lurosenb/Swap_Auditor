@@ -290,7 +290,7 @@ class RandomizedSamplingSwapAuditor(BaseSwapAuditor):
         # Calculate number of t iterations with delta, epsilon, n
         # TODO: Verify this iteration calculation
         # t = int(np.ceil((np.log((2*n)/delta))/(epsilon**2)))
-        t = int(np.ceil((np.log((2)/delta))/(epsilon**2)))
+        t = int(np.ceil((np.log((2*n)/delta))/(epsilon**2)))
         print("Iterations: " + str(t))
         
         for _, row in self.data.iterrows():
@@ -317,19 +317,22 @@ class RandomizedGroupSwapAuditor(BaseSwapAuditor):
             sg1_frame = self.subgroup_frames[self._sg_key(sg_1)]
             for sg_2 in self.intersectional_classes:
                 if sg_1 != sg_2:
-                    swap_frame_sg1 = sg1_frame.sample(n=len(sg1_frame), replace=True)
-
                     sg2_frame = self.subgroup_frames[self._sg_key(sg_2)]
                     
-                    swap_frame_sg2 = sg2_frame.sample(n=len(sg1_frame), replace=True)
+                    sample_group_size = min(len(sg1_frame), len(sg2_frame))
+                
+                    swap_frame_sg1 = sg1_frame.sample(n=sample_group_size, replace=False)
+
+                    swap_frame_sg2 = sg2_frame.sample(n=sample_group_size, replace=False)
 
                     columns_to_reassign = swap_frame_sg2.columns.difference(marginal)
 
-                    # Random samples subgroup 1 swapped
-                    swap_frame_sg1.loc[:,columns_to_reassign] = swap_frame_sg2.loc[:,columns_to_reassign].values
-
-                    # Random samples subgroup 2 swapped
-                    swap_frame_sg2.loc[:,columns_to_reassign] = sg1_frame.loc[:,columns_to_reassign].values
+                    if len(sg1_frame) < len(sg2_frame):
+                        swap_frame_sg1.loc[:,columns_to_reassign] = swap_frame_sg2.loc[:,columns_to_reassign].values
+                        swap_frame_sg2.loc[:,columns_to_reassign] = sg1_frame.loc[:,columns_to_reassign].values
+                    else:
+                        swap_frame_sg2.loc[:,columns_to_reassign] = swap_frame_sg1.loc[:,columns_to_reassign].values
+                        swap_frame_sg1.loc[:,columns_to_reassign] = sg2_frame.loc[:,columns_to_reassign].values
 
                     sg1_predictions = self.predictor.predict(swap_frame_sg1[self.prediction_cols])
                     sg2_predictions = self.predictor.predict(swap_frame_sg2[self.prediction_cols])
