@@ -97,6 +97,25 @@ class BaseSwapAuditor():
                 string += "\n"
         return string
 
+    def _calculate_subgroup_stability(self):
+        for id, vals in self.individual_stability.items():
+            sample = self.data.loc[self.data[self.id_column].isin([id])]
+            subgroup = self._retrieve_subgroup_individual(sample, self.protected_classes)
+            
+            all_non_changes, all_total, marginal_map = self.subgroup_stability[self._sg_key(subgroup)]
+            
+            ind_non_changes, ind_total, ind_marginal_map = vals
+            
+            for marginal, m_vals in ind_marginal_map.items():
+                a, b = m_vals
+                if self._marginal_key(marginal) not in marginal_map:
+                    marginal_map[self._marginal_key(marginal)] = (0,0)
+
+                s, p = marginal_map[self._marginal_key(marginal)] 
+                marginal_map[self._marginal_key(marginal)] = (s + a, p + b)
+            
+            self.subgroup_stability[self._sg_key(subgroup)] = (all_non_changes+ind_non_changes, all_total+ind_total, marginal_map)
+
     def _retrieve_stability(self, x, mappings, percent):
         stability = None
         pretty_print_marginals = ""
@@ -190,7 +209,9 @@ class NaiveSwapAuditor(BaseSwapAuditor):
                     self._track_metrics(stability, predictions, marginal, int(id), self.individual_stability, individual=True)
                     
                     # Do groupwise metric tracking
-                    self._track_metrics(stability, predictions, marginal, sg, self.subgroup_stability, individual=False)
+                    # NOTE: Removing this here, as it can be post calculated for Naive but not randomized. Makes
+                    # For a fair comparison not to factor in runtime of this operation
+                    # self._track_metrics(stability, predictions, marginal, sg, self.subgroup_stability, individual=False)
 
                     del x_copy
 
