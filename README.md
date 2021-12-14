@@ -1,2 +1,2 @@
-# Algos_Final_Project
+# Swap Auditor
 NELS empirical data analysis fairness
