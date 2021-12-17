@@ -288,9 +288,7 @@ class RandomizedSamplingSwapAuditor(BaseSwapAuditor):
         n = len(self.data)
 
         # Calculate number of t iterations with delta, epsilon, n
-        # TODO: Verify this iteration calculation
-        # t = int(np.ceil((np.log((2*n)/delta))/(epsilon**2)))
-        t = int(np.ceil((np.log((2*n)/delta))/(epsilon**2)))
+        t = int(np.ceil((np.log((2*n)/delta))/(2*epsilon**2)))
         print("Iterations: " + str(t))
         
         for _, row in self.data.iterrows():
@@ -355,7 +353,8 @@ class RandomizedGroupSwapAuditor(BaseSwapAuditor):
         # Calculate number of t iterations with delta, epsilon, n
         # TODO: Verify this iteration calculation
         if t is None:
-            t = int(np.ceil((np.log((2*n)/delta))/(epsilon**2)))
+            m = len(self.subgroup_frames)
+            t = int(np.ceil((np.log((2*m)/delta))/(2*epsilon**2)))
         print("Iterations: " + str(t))
 
         for marginal in self.all_marginals:
